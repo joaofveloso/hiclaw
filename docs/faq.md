@@ -85,7 +85,7 @@ In the Higress console, configure the `default-ai-route` route to point to your 
 
 **Multiple providers**
 
-In the Higress console, configure routing rules on `default-ai-route` so that different model name prefixes or regex patterns map to the corresponding provider. After that, the process is the same as the single-provider case — just tell Manager the model name and it handles the rest.
+In the Higress console, create multiple AI routes — each with a different model name matching rule (prefix or regex) pointing to the corresponding provider. After that, the process is the same as the single-provider case — just tell Manager the model name and it handles the rest.
 
 ---
 
