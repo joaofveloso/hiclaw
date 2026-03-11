@@ -80,13 +80,23 @@ RUN python -m venv /opt/venv/lite \
         /tmp/copaw-worker/
 
 # ---------------------------------------------------------------------------
-# Patch reme in the lite venv to defer heavyweight packages that copaw never
-# uses (chromadb, pandas, elasticsearch, qdrant, mcp …).  Saves ~65 MB RSS.
+# Patch installed packages in the lite venv to defer heavyweight modules that
+# copaw-worker headless mode never uses.  Total saving: ~170 MB RSS.
+#
+#   patch_reme_lazy.py             — reme: chromadb/pandas/mcp/elasticsearch
+#   patch_agentscope_lazy.py       — agentscope: redis/socketio/sqlalchemy/mcp
+#   patch_agentscope_runtime_lazy.py — agentscope_runtime: opentelemetry/a2a/fastapi
 # ---------------------------------------------------------------------------
-COPY scripts/patch_reme_lazy.py /tmp/patch_reme_lazy.py
-RUN /opt/venv/lite/bin/python /tmp/patch_reme_lazy.py \
-        /opt/venv/lite/lib/python3.11/site-packages/reme \
-    && rm /tmp/patch_reme_lazy.py
+COPY scripts/patch_reme_lazy.py \
+     scripts/patch_agentscope_lazy.py \
+     scripts/patch_agentscope_runtime_lazy.py \
+     /tmp/
+
+RUN SITE=/opt/venv/lite/lib/python3.11/site-packages \
+    && /opt/venv/lite/bin/python /tmp/patch_reme_lazy.py "$SITE/reme" \
+    && /opt/venv/lite/bin/python /tmp/patch_agentscope_lazy.py "$SITE/agentscope" \
+    && /opt/venv/lite/bin/python /tmp/patch_agentscope_runtime_lazy.py "$SITE/agentscope_runtime" \
+    && rm /tmp/patch_*_lazy.py
 
 RUN rm -rf /tmp/copaw-worker/ /tmp/lite-copaw/
 

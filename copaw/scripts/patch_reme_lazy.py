@@ -5,7 +5,8 @@ Copaw only uses ReMeCopaw and CoPawInMemoryMemory — it never touches
 chromadb, elasticsearch, qdrant, pandas CacheHandler, or MCP services
 directly.  This script rewrites several reme __init__.py files so that
 those heavy transitive dependencies are only imported when explicitly
-accessed.  Net saving: ~65 MB RSS.
+accessed.  Also defers ReMe/ReMeConfigParser and mcp.types.Tool to
+prevent loading pandas/mcp/uvicorn at import time.  Net saving: ~100 MB RSS.
 
 Usage:
     python patch_reme_lazy.py /path/to/site-packages/reme
@@ -232,14 +233,11 @@ def patch(site: Path) -> None:
     )
 
     # ------------------------------------------------------------------ #
-    # 7) reme/__init__.py — lazy-load extension and memory sub-packages
+    # 7) reme/__init__.py — fully lazy (ReMe + ReMeConfigParser deferred)
     # ------------------------------------------------------------------ #
     (site / "__init__.py").write_text(
         textwrap.dedent("""\
             import importlib
-
-            from .config import ReMeConfigParser
-            from .reme import ReMe
 
             __version__ = "0.3.0.5"
 
@@ -248,9 +246,11 @@ def patch(site: Path) -> None:
                 "core": ".core",
                 "extension": ".extension",
                 "memory": ".memory",
+                "ReMe": ".reme",
                 "ReMeCli": ".reme_cli",
+                "ReMeConfigParser": ".config",
             }
-            __all__ = ["config", "core", "extension", "memory", "ReMe", "ReMeCli"]
+            __all__ = ["config", "core", "extension", "memory", "ReMe", "ReMeCli", "ReMeConfigParser"]
 
             def __getattr__(name):
                 if name in _LAZY:
@@ -261,6 +261,54 @@ def patch(site: Path) -> None:
                 raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
         """)
     )
+
+    # ------------------------------------------------------------------ #
+    # 8) core/schema/tool_call.py — lazy-import mcp.types.Tool
+    # ------------------------------------------------------------------ #
+    tc = site / "core/schema/tool_call.py"
+    src = tc.read_text()
+    if "from mcp.types import Tool" in src:
+        src = src.replace(
+            "from mcp.types import Tool\n",
+            "",
+        )
+        # Add TYPE_CHECKING guard
+        src = src.replace(
+            "from typing import Any, Union, Optional",
+            "from typing import Any, Union, Optional, TYPE_CHECKING\n"
+            "\n"
+            "if TYPE_CHECKING:\n"
+            "    from mcp.types import Tool",
+        )
+        # Fix type annotation in from_mcp_tool
+        src = src.replace(
+            "def from_mcp_tool(cls, tool: Tool)",
+            'def from_mcp_tool(cls, tool: "Tool")',
+        )
+        # Lazy-import Tool inside to_mcp_tool method
+        src = src.replace(
+            "        return Tool(",
+            "        from mcp.types import Tool as _McpTool\n"
+            "        return _McpTool(",
+        )
+        tc.write_text(src)
+
+    # ------------------------------------------------------------------ #
+    # 9) core/application.py — lazy-import MCPClient
+    # ------------------------------------------------------------------ #
+    app = site / "core/application.py"
+    src = app.read_text()
+    if "MCPClient" in src:
+        src = src.replace(
+            "from .utils import execute_stream_task, PydanticConfigParser, init_logger, MCPClient, print_logo",
+            "from .utils import execute_stream_task, PydanticConfigParser, init_logger, print_logo",
+        )
+        src = src.replace(
+            "        mcp_client = MCPClient(",
+            "        from .utils import MCPClient\n"
+            "        mcp_client = MCPClient(",
+        )
+        app.write_text(src)
 
     print("reme patched successfully — lazy-loading enabled for heavy backends")
 
